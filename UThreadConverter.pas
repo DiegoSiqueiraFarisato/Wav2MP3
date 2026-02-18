@@ -1,4 +1,4 @@
-unit UThreadConverter;
+﻿unit UThreadConverter;
 
 interface
 
@@ -12,20 +12,36 @@ type
     FEncoders: TInterfaceList;
     FEncoderIndex: Integer;
     FEncoderConfig: TEncoderConfig;
-    FWavList: TStringList;
+    FOwnedWavList: TStringList;
     FOutputDir: string;
     FProgressBar: TProgressBar;
     FFileLabel: TLabel;
     FCancelled: PBoolean;
+    FWorkEvent: THandle;
+    FOnComplete: TNotifyEvent;
 
-    FWavFile, FMp3File: TFileStream;
-    FMp3Memory, FWavMemory: TMemoryStream;
-    FWavPath, FMp3Path: string;
-    FStream: THBE_STREAM;
+    { Sync transfer fields }
+    FSyncLabelText: string;
+    FSyncProgressPos: Integer;
+    FSyncProgressMax: Integer;
+    FSyncErrorMsg: string;
 
-    procedure PrepareStreams;
-    procedure CleanupStreams;
-    procedure ConvertFile;
+    procedure ProcessAllFiles;
+    procedure PrepareStreams(var WavFile, Mp3File: TFileStream;
+      var WavMemory, Mp3Memory: TMemoryStream;
+      const WavPath, Mp3Path: string);
+    procedure CleanupStreams(var WavFile, Mp3File: TFileStream;
+      var WavMemory, Mp3Memory: TMemoryStream;
+      var Stream: THBE_STREAM; const Mp3Path: string);
+    procedure ConvertFile(const WavPath, Mp3Path: string);
+
+    { Sync helpers — executed on main thread }
+    procedure SyncUpdateLabel;
+    procedure SyncUpdateProgress;
+    procedure SyncSetProgressMax;
+    procedure SyncResetProgress;
+    procedure SyncShowError;
+    procedure SyncComplete;
   protected
     procedure Execute; override;
   public
@@ -42,6 +58,7 @@ type
     function GetEncoderCount: Integer;
 
     property EncoderIndex: Integer read FEncoderIndex write FEncoderIndex;
+    property OnComplete: TNotifyEvent read FOnComplete write FOnComplete;
   end;
 
 function ExtractFileNameWithoutExt(const Path: string): string;
@@ -82,9 +99,11 @@ var
   Rec: TSearchRec;
   DLLName: string;
 begin
-  inherited Create(False);
+  inherited Create(True);  // create suspended
+  FreeOnTerminate := False;
   FEncoders := TInterfaceList.Create;
   FEncoderIndex := 0;
+  FOwnedWavList := TStringList.Create;
 
   AppPath := ExtractFilePath(Application.ExeName);
 
@@ -100,7 +119,7 @@ begin
           Encoder := TBladeEncoder.Create;
           Encoder.LoadDLL(AppPath + Rec.Name);
         end
-        else if DLLName = 'LAME_ENC.DLL' then
+        else if (DLLName = 'LAME_ENC.DLL') or (DLLName = 'LIBMP3LAME.DLL') then
         begin
           Encoder := TLameEncoder.Create;
           Encoder.LoadDLL(AppPath + Rec.Name);
@@ -113,21 +132,28 @@ begin
       FindClose(Rec);
     end;
   end;
+
+  FWorkEvent := CreateEvent(nil, True, False, nil);  // manual-reset, initially non-signaled
+  //Start;  // begin the wait loop
 end;
 
 destructor TThreadConverter.Destroy;
 begin
+  Terminate;
+  SetEvent(FWorkEvent);  // wake thread so it can exit
+  WaitFor;
+  CloseHandle(FWorkEvent);
+  FOwnedWavList.Free;
   FEncoders.Free;
   inherited Destroy;
 end;
 
 function TThreadConverter.GetEncoderVersions: TStrings;
 var
-  i: Integer;
   List: TStringList;
 begin
   List := TStringList.Create;
-  for i := 0 to FEncoders.Count - 1 do
+  for var i := 0 to FEncoders.Count - 1 do
     List.Add((FEncoders[i] as IEncoder).GetVersion);
   Result := List;
 end;
@@ -143,56 +169,100 @@ procedure TThreadConverter.ConvertWavToMP3(Priority: TThreadPriority;
   FileLabel: TLabel; ProgressBar: TProgressBar;
   CancelFlag: PBoolean);
 begin
-  FWavList := WavList;
+  FOwnedWavList.Assign(WavList);
   FOutputDir := OutputDir;
   FEncoderConfig := Config;
   FFileLabel := FileLabel;
   FProgressBar := ProgressBar;
   Self.Priority := Priority;
   FCancelled := CancelFlag;
-  Execute;
-  FreeOnTerminate := True;
+  SetEvent(FWorkEvent);  // wake the thread
 end;
 
-procedure TThreadConverter.PrepareStreams;
+procedure TThreadConverter.Execute;
 begin
-  if (FWavFile = nil) and (FMp3File = nil) then
+  while not Terminated do
+  begin
+    WaitForSingleObject(FWorkEvent, INFINITE);
+    if Terminated then
+      Break;
+    ResetEvent(FWorkEvent);
+    ProcessAllFiles;
+    Synchronize(SyncComplete);
+  end;
+end;
+
+procedure TThreadConverter.ProcessAllFiles;
+var
+  i: Integer;
+  WavPath, Mp3Path, FileName: string;
+begin
+  for i := 0 to FOwnedWavList.Count - 1 do
+  begin
+    if FCancelled^ then
+      Break;
+
+    WavPath := FOwnedWavList.Strings[i];
+    Mp3Path := FOutputDir + ExtractFileNameWithoutExt(WavPath) + '.mp3';
+    FileName := ExtractFileName(WavPath);
+
+    FSyncLabelText := 'Convertendo: '#13 + FileName;
+    Synchronize(SyncUpdateLabel);
+
+    if (not IsFileInUse(Mp3Path)) and (not IsFileInUse(WavPath)) then
+      ConvertFile(WavPath, Mp3Path);
+  end;
+
+  FSyncLabelText := 'Selecione os Arquivos';
+  Synchronize(SyncUpdateLabel);
+end;
+
+procedure TThreadConverter.PrepareStreams(var WavFile, Mp3File: TFileStream;
+  var WavMemory, Mp3Memory: TMemoryStream;
+  const WavPath, Mp3Path: string);
+begin
+  if (WavFile = nil) and (Mp3File = nil) then
   begin
     try
-      FMp3File := TFileStream.Create(FMp3Path, fmCreate or fmShareDenyNone);
-      FMp3Memory := TMemoryStream.Create;
-      FWavFile := TFileStream.Create(FWavPath, fmOpenRead);
-      FWavMemory := TMemoryStream.Create;
+      Mp3File := TFileStream.Create(Mp3Path, fmCreate or fmShareDenyNone);
+      Mp3Memory := TMemoryStream.Create;
+      WavFile := TFileStream.Create(WavPath, fmOpenRead);
+      WavMemory := TMemoryStream.Create;
     except
       on E: Exception do
       begin
-        CleanupStreams;
+        FreeAndNil(WavFile);
+        FreeAndNil(Mp3File);
+        FreeAndNil(Mp3Memory);
+        FreeAndNil(WavMemory);
       end;
     end;
   end;
 end;
 
-procedure TThreadConverter.CleanupStreams;
+procedure TThreadConverter.CleanupStreams(var WavFile, Mp3File: TFileStream;
+  var WavMemory, Mp3Memory: TMemoryStream;
+  var Stream: THBE_STREAM; const Mp3Path: string);
 var
   Encoder: IEncoder;
 begin
-  if (FStream <> 0) and (FEncoderIndex >= 0) and (FEncoderIndex < FEncoders.Count) then
+  if (Stream <> 0) and (FEncoderIndex >= 0) and (FEncoderIndex < FEncoders.Count) then
   begin
     Encoder := FEncoders[FEncoderIndex] as IEncoder;
-    Encoder.CloseStream(FStream);
-    FStream := 0;
+    Encoder.CloseStream(Stream);
+    Stream := 0;
   end;
 
-  FreeAndNil(FWavFile);
-  FreeAndNil(FMp3File);
-  FreeAndNil(FMp3Memory);
-  FreeAndNil(FWavMemory);
+  FreeAndNil(WavFile);
+  FreeAndNil(Mp3File);
+  FreeAndNil(Mp3Memory);
+  FreeAndNil(WavMemory);
 
   if FCancelled^ then
-    DeleteFile(FMp3Path);
+    DeleteFile(Mp3Path);
 end;
 
-procedure TThreadConverter.ConvertFile;
+procedure TThreadConverter.ConvertFile(const WavPath, Mp3Path: string);
 var
   Encoder: IEncoder;
   NumSamples, MP3BufferSize: DWORD;
@@ -200,52 +270,61 @@ var
     WriteSize, FinalSize: DWORD;
   Offset: DWORD;
   Err: BE_ERR;
+  WavFile, Mp3File: TFileStream;
+  WavMemory, Mp3Memory: TMemoryStream;
+  Stream: THBE_STREAM;
 begin
   if (FEncoderIndex < 0) or (FEncoderIndex >= FEncoders.Count) then
     Exit;
 
   Encoder := FEncoders[FEncoderIndex] as IEncoder;
 
-  FProgressBar.Position := 0;
-  FProgressBar.Min := 0;
+  WavFile := nil;
+  Mp3File := nil;
+  WavMemory := nil;
+  Mp3Memory := nil;
+  Stream := 0;
+
+  FSyncProgressMax := 0;
+  Synchronize(SyncSetProgressMax);
 
   if FCancelled^ then
     Exit;
 
-  PrepareStreams;
+  PrepareStreams(WavFile, Mp3File, WavMemory, Mp3Memory, WavPath, Mp3Path);
 
-  if (FWavFile = nil) or (FMp3File = nil) then
+  if (WavFile = nil) or (Mp3File = nil) then
     Exit;
 
   Encoder.Configure(FEncoderConfig);
 
-  FStream := 0;
-  Err := Encoder.InitStream(NumSamples, MP3BufferSize, FStream);
+  Err := Encoder.InitStream(NumSamples, MP3BufferSize, Stream);
   if Err <> BE_ERR_SUCCESSFUL then
   begin
-    Application.MessageBox(PChar('Erro ao Abrir : ' + IntToStr(Err)),
-      'Aten' + #231 + #227 + 'o!', MB_OK + MB_ICONERROR);
-    CleanupStreams;
+    FSyncErrorMsg := 'Erro ao Abrir : ' + IntToStr(Err);
+    Synchronize(SyncShowError);
+    CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
     Exit;
   end;
 
-  if (FMp3Memory = nil) or FCancelled^ then
+  if (Mp3Memory = nil) or FCancelled^ then
   begin
-    CleanupStreams;
+    CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
     Exit;
   end;
-  FMp3Memory.SetSize(MP3BufferSize);
+  Mp3Memory.SetSize(MP3BufferSize);
 
-  if (FWavMemory = nil) or FCancelled^ then
+  if (WavMemory = nil) or FCancelled^ then
   begin
-    CleanupStreams;
+    CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
     Exit;
   end;
-  FWavMemory.SetSize(NumSamples);
+  WavMemory.SetSize(NumSamples);
 
-  FileSize := FWavFile.Size;
+  FileSize := WavFile.Size;
   Completed := 0;
-  FProgressBar.Max := FileSize;
+  FSyncProgressMax := FileSize;
+  Synchronize(SyncSetProgressMax);
   TotalChunk := NumSamples * 2;
 
   while (Completed <> FileSize) and (not FCancelled^) do
@@ -256,8 +335,8 @@ begin
     else
       ReadSize := FileSize - Completed;
 
-    if FWavFile <> nil then
-      BytesRead := FWavFile.Read(FWavMemory.Memory^, ReadSize)
+    if WavFile <> nil then
+      BytesRead := WavFile.Read(WavMemory.Memory^, ReadSize)
     else
     begin
       FCancelled^ := True;
@@ -266,17 +345,17 @@ begin
 
     if BytesRead <> ReadSize then
     begin
-      Application.MessageBox(PChar('Erro de Leitura!'),
-        'Aten' + #231 + #227 + 'o!', MB_OK + MB_ICONERROR);
+      FSyncErrorMsg := 'Erro de Leitura!';
+      Synchronize(SyncShowError);
       FCancelled^ := True;
-      CleanupStreams;
+      CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
       Break;
     end;
 
     Offset := ReadSize div 2;
-    if (FMp3Memory <> nil) and (FWavMemory <> nil) then
-      Err := Encoder.EncodeChunk(FStream, Offset, FWavMemory.Memory,
-        FMp3Memory.Memory, WriteSize)
+    if (Mp3Memory <> nil) and (WavMemory <> nil) then
+      Err := Encoder.EncodeChunk(Stream, Offset, WavMemory.Memory,
+        Mp3Memory.Memory, WriteSize)
     else
     begin
       FCancelled^ := True;
@@ -285,15 +364,15 @@ begin
 
     if Err <> BE_ERR_SUCCESSFUL then
     begin
-      Application.MessageBox(PChar('Falha na Convers' + #227 + 'o!' + IntToStr(Err)),
-        'Aten' + #231 + #227 + 'o!', MB_OK + MB_ICONERROR);
+      FSyncErrorMsg := 'Falha na Convers' + #227 + 'o!' + IntToStr(Err);
+      Synchronize(SyncShowError);
       FCancelled^ := True;
-      CleanupStreams;
+      CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
       Break;
     end;
 
-    if FMp3Memory <> nil then
-      BytesWritten := FMp3File.Write(FMp3Memory.Memory^, WriteSize)
+    if Mp3Memory <> nil then
+      BytesWritten := Mp3File.Write(Mp3Memory.Memory^, WriteSize)
     else
     begin
       FCancelled^ := True;
@@ -302,88 +381,94 @@ begin
 
     if WriteSize <> BytesWritten then
     begin
-      Application.MessageBox(PChar('Erro de Grava' + #231 + #227 + 'o!'),
-        'Aten' + #231 + #227 + 'o!', MB_OK + MB_ICONERROR);
+      FSyncErrorMsg := 'Erro de Grava' + #231 + #227 + 'o!';
+      Synchronize(SyncShowError);
       FCancelled^ := True;
-      CleanupStreams;
+      CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
       Break;
     end;
 
     Completed := Completed + ReadSize;
-    FProgressBar.Position := FProgressBar.Position + Int64(ReadSize);
-    Application.ProcessMessages;
+    FSyncProgressPos := Completed;
+    Synchronize(SyncUpdateProgress);
   end;
 
   if FCancelled^ then
   begin
-    CleanupStreams;
-    FProgressBar.Position := 0;
+    CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
+    Synchronize(SyncResetProgress);
     Exit;
   end;
 
-  if FMp3Memory <> nil then
-    Err := Encoder.DeinitStream(FStream, FMp3Memory.Memory, FinalSize)
+  if Mp3Memory <> nil then
+    Err := Encoder.DeinitStream(Stream, Mp3Memory.Memory, FinalSize)
   else
   begin
-    CleanupStreams;
+    CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
     Exit;
   end;
 
   if Err <> BE_ERR_SUCCESSFUL then
   begin
-    Application.MessageBox(PChar('Erro de Fechamento!' + IntToStr(Err)),
-      'Aten' + #231 + #227 + 'o!', MB_OK + MB_ICONERROR);
-    CleanupStreams;
+    FSyncErrorMsg := 'Erro de Fechamento!' + IntToStr(Err);
+    Synchronize(SyncShowError);
+    CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
     Exit;
   end;
 
-  if FMp3Memory <> nil then
-    BytesWritten := FMp3File.Write(FMp3Memory.Memory^, FinalSize)
+  if Mp3Memory <> nil then
+    BytesWritten := Mp3File.Write(Mp3Memory.Memory^, FinalSize)
   else
   begin
-    CleanupStreams;
+    CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
     Exit;
   end;
 
   if FinalSize <> BytesWritten then
   begin
-    Application.MessageBox(PChar('Falha ao Salvar!'),
-      'Aten' + #231 + #227 + 'o!', MB_OK + MB_ICONERROR);
-    CleanupStreams;
+    FSyncErrorMsg := 'Falha ao Salvar!';
+    Synchronize(SyncShowError);
+    CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
     Exit;
   end;
 
-  CleanupStreams;
+  CleanupStreams(WavFile, Mp3File, WavMemory, Mp3Memory, Stream, Mp3Path);
+  Synchronize(SyncResetProgress);
+end;
+
+{ Sync helpers — executed on main thread via Synchronize }
+
+procedure TThreadConverter.SyncUpdateLabel;
+begin
+  FFileLabel.Caption := FSyncLabelText;
+end;
+
+procedure TThreadConverter.SyncUpdateProgress;
+begin
+  FProgressBar.Position := FSyncProgressPos;
+end;
+
+procedure TThreadConverter.SyncSetProgressMax;
+begin
+  FProgressBar.Max := FSyncProgressMax;
   FProgressBar.Position := 0;
 end;
 
-procedure TThreadConverter.Execute;
-var
-  i: Integer;
-  FileName: string;
+procedure TThreadConverter.SyncResetProgress;
 begin
-  if FWavList = nil then
-    Exit;
+  FProgressBar.Position := 0;
+end;
 
-  for i := 0 to FWavList.Count - 1 do
-  begin
-    if FCancelled^ then
-      Break;
+procedure TThreadConverter.SyncShowError;
+begin
+  Application.MessageBox(PChar(FSyncErrorMsg),
+    PChar('Aten' + #231 + #227 + 'o!'), MB_OK + MB_ICONERROR);
+end;
 
-    FWavPath := FWavList.Strings[i];
-    FMp3Path := FOutputDir + ExtractFileNameWithoutExt(FWavPath) + '.mp3';
-    FileName := ExtractFileName(FWavPath);
-
-    FFileLabel.Caption := 'Convertendo: '#13 + FileName;
-    Application.ProcessMessages;
-
-    if (not IsFileInUse(FMp3Path)) and (not IsFileInUse(FWavPath)) then
-      Synchronize(ConvertFile)
-    else
-      CleanupStreams;
-  end;
-
-  FFileLabel.Caption := 'Selecione os Arquivos';
+procedure TThreadConverter.SyncComplete;
+begin
+  if Assigned(FOnComplete) then
+    FOnComplete(Self);
 end;
 
 end.

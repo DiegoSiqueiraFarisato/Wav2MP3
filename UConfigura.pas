@@ -181,6 +181,7 @@ end;
 
 function TForm2.GetEncoderConfig: TEncoderConfig;
 begin
+  FillChar(Result, SizeOf(Result), 0);
   Result.SampleRate := GetSampleRate;
   Result.Mode := GetMode;
   Result.BitRate := FBitRate;
@@ -188,6 +189,14 @@ begin
   Result.CRC := cbCRC.Checked;
   Result.Copyright := cbCopy.Checked;
   Result.Original := cbOriginal.Checked;
+  { LHV1 defaults for LAME }
+  Result.ReSampleRate := 0;
+  Result.MaxBitRate := FBitRate;
+  Result.Quality := QUALITY_HIGH;
+  Result.MpegVersion := MPEG1;
+  Result.EnableVBR := False;
+  Result.VBRQuality := 0;
+  Result.WriteVBRHeader := False;
 end;
 
 procedure TForm2.SetEncoderConfig(const AConfig: TEncoderConfig);

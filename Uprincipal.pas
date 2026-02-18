@@ -44,6 +44,7 @@ type
     procedure LoadConfig;
     procedure SaveConfig(Sender: TObject);
     procedure OnEncoderChanged(Sender: TObject);
+    procedure OnConversionComplete(Sender: TObject);
   public
     property Cancelled: Boolean read FCancelled write FCancelled;
   end;
@@ -185,6 +186,9 @@ begin
       Form3.CancelFlag := @FCancelled;
       Form3.Show;
 
+      FThreadConverter := TThreadConverter.Create;
+      FThreadConverter.OnComplete := OnConversionComplete;
+
       FThreadConverter.EncoderIndex := Form2.GetEncoderIndex;
       FThreadConverter.ConvertWavToMP3(
         Form2.ThreadPriority,
@@ -194,18 +198,14 @@ begin
         Form3.LBArquivos,
         Form3.ProgressBar1,
         @FCancelled);
-
-      Form3.Release;
-
-      Button4.Enabled := True;
-      Button5.Enabled := True;
-      Button1.Enabled := True;
     end;
   end;
 end;
 
 procedure TForm1.FormClose(Sender: TObject; var Action: TCloseAction);
 begin
+  FCancelled := True;
+  FThreadConverter.Free;
   FWavList.Free;
   FConfig.Free;
 end;
@@ -266,6 +266,18 @@ begin
       FileListBox1.Selected[i] := True;
 end;
 
+procedure TForm1.OnConversionComplete(Sender: TObject);
+begin
+  if Form3 <> nil then
+  begin
+    Form3.Release;
+    Form3 := nil;
+  end;
+  Button4.Enabled := True;
+  Button5.Enabled := True;
+  Button1.Enabled := True;
+end;
+
 procedure TForm1.FormCreate(Sender: TObject);
 var
   DefaultDir: string;
@@ -273,8 +285,6 @@ begin
   Form2 := TForm2.Create(Application);
   Form2.OnSaveConfig := SaveConfig;
   Form2.OnEncoderChanged := OnEncoderChanged;
-
-  FThreadConverter := TThreadConverter.Create;
   FConfig := TStringList.Create;
   FWavList := TStringList.Create;
   FCancelled := False;

@@ -30,7 +30,6 @@ procedure TForm3.Button1Click(Sender: TObject);
 begin
   if FCancelFlag <> nil then
     FCancelFlag^ := True;
-  Close;
 end;
 
 end.

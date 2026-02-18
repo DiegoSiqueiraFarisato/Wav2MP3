@@ -12,10 +12,24 @@ const
   BE_ERR_INVALID_FORMAT_PARAMETERS = $00000002;
   BE_ERR_NO_MORE_HANDLES           = $00000003;
   BE_ERR_INVALID_HANDLE            = $00000004;
+  BE_ERR_BUFFER_TOO_SMALL          = $00000005;
   BE_MAX_HOMEPAGE                  = 256;
   BE_MP3_MODE_STEREO               = 0;
   BE_MP3_MODE_DUALCHANNEL          = 2;
   BE_MP3_MODE_MONO                 = 3;
+
+  { LAME LHV1 MPEG versions }
+  MPEG1                            = 1;
+  MPEG2                            = 0;
+
+  { LAME LHV1 quality presets }
+  QUALITY_NORMAL                   = 0;
+  QUALITY_LOW                      = 1;
+  QUALITY_HIGH                     = 2;
+  QUALITY_VOICE                    = 3;
+
+  { BE_CONFIG format selector for LHV1 }
+  BE_CONFIG_LAME                   = 256;
 
 type
   SHORT = ShortInt;
@@ -87,6 +101,14 @@ type
     CRC: LongBool;
     Copyright: LongBool;
     Original: LongBool;
+    { LHV1-specific fields (used by LAME) }
+    ReSampleRate: DWORD;
+    MaxBitRate: DWORD;
+    Quality: Integer;
+    MpegVersion: DWORD;
+    EnableVBR: LongBool;
+    VBRQuality: Integer;
+    WriteVBRHeader: LongBool;
   end;
 
   IEncoder = interface
