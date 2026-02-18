@@ -188,7 +188,6 @@ begin
 
       FThreadConverter := TThreadConverter.Create;
       FThreadConverter.OnComplete := OnConversionComplete;
-
       FThreadConverter.EncoderIndex := Form2.GetEncoderIndex;
       FThreadConverter.ConvertWavToMP3(
         Form2.ThreadPriority,

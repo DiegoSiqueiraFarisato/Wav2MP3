@@ -149,13 +149,10 @@ begin
 end;
 
 function TThreadConverter.GetEncoderVersions: TStrings;
-var
-  List: TStringList;
 begin
-  List := TStringList.Create;
+  Result := TStringList.Create;
   for var i := 0 to FEncoders.Count - 1 do
-    List.Add((FEncoders[i] as IEncoder).GetVersion);
-  Result := List;
+    Result.Add((FEncoders[i] as IEncoder).GetVersion);
 end;
 
 function TThreadConverter.GetEncoderCount: Integer;
