@@ -143,6 +143,7 @@ var
   EncoderConfig: TEncoderConfig;
   DirLen: Integer;
 begin
+  ShowMessage('Button1Click started.'); // DIAGNOSTIC
   FCancelled := False;
   FWavList.Clear;
 
@@ -185,8 +186,8 @@ begin
       Form3 := TForm3.Create(Application);
       Form3.CancelFlag := @FCancelled;
       Form3.Show;
+      ShowMessage('Form3 shown. FWavList count: ' + IntToStr(FWavList.Count)); // DIAGNOSTIC
 
-      FThreadConverter := TThreadConverter.Create;
       FThreadConverter.OnComplete := OnConversionComplete;
       FThreadConverter.EncoderIndex := Form2.GetEncoderIndex;
       FThreadConverter.ConvertWavToMP3(
@@ -280,6 +281,7 @@ end;
 procedure TForm1.FormCreate(Sender: TObject);
 var
   DefaultDir: string;
+  Versions: TStrings;
 begin
   Form2 := TForm2.Create(Application);
   Form2.OnSaveConfig := SaveConfig;
@@ -295,6 +297,21 @@ begin
   DirectoryListBox1.Directory := DefaultDir;
 
   LoadConfig;
+  FThreadConverter := TThreadConverter.Create;
+
+  Versions := FThreadConverter.GetEncoderVersions;
+  try
+    Form2.ComboBox1.Items := Versions;
+  finally
+    Versions.Free;
+  end;
+  if Form2.ComboBox1.Items.Count > 0 then
+  begin
+    Form2.ComboBox1.ItemIndex := StrToInt(FConfig.Strings[1]);
+    if Form2.ComboBox1.ItemIndex < 0 then
+      Form2.ComboBox1.ItemIndex := 0;
+  end;
+  FThreadConverter.EncoderIndex := Form2.ComboBox1.ItemIndex;
 end;
 
 end.

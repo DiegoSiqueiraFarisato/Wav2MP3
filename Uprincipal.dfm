@@ -430,9 +430,9 @@ object Form1: TForm1
       object LBDirMp3: TLabel
         Left = 8
         Top = 12
-        Width = 256
+        Width = 248
         Height = 14
-        Caption = 'F:\componentes\delphimvcframework\ideexpert\tests'
+        Caption = 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin'
         Font.Charset = ANSI_CHARSET
         Font.Color = clBlack
         Font.Height = -11
@@ -460,9 +460,9 @@ object Form1: TForm1
       object LBDirWav: TLabel
         Left = 8
         Top = 12
-        Width = 256
+        Width = 248
         Height = 14
-        Caption = 'F:\componentes\delphimvcframework\ideexpert\tests'
+        Caption = 'C:\Program Files (x86)\Embarcadero\Studio\37.0\bin'
         Font.Charset = ANSI_CHARSET
         Font.Color = clBlack
         Font.Height = -11

@@ -90,6 +90,29 @@ begin
     CloseHandle(HFileRes);
 end;
 
+function SkipWavHeader(WavFile: TFileStream): DWORD;
+var
+  ChunkID: array[0..3] of AnsiChar;
+  ChunkSize: DWORD;
+begin
+  Result := 44; // fallback: standard PCM header size
+  if WavFile.Size < 12 then Exit;
+  WavFile.Seek(12, soFromBeginning); // skip 'RIFF' + file-size + 'WAVE'
+  while WavFile.Position + 8 <= WavFile.Size do
+  begin
+    if WavFile.Read(ChunkID, 4) < 4 then Break;
+    if WavFile.Read(ChunkSize, 4) < 4 then Break;
+    if (ChunkID[0] = 'd') and (ChunkID[1] = 'a') and
+       (ChunkID[2] = 't') and (ChunkID[3] = 'a') then
+    begin
+      Result := DWORD(WavFile.Position); // now sitting at first PCM byte
+      Exit;
+    end;
+    WavFile.Seek(ChunkSize, soFromCurrent);
+  end;
+  WavFile.Seek(Result, soFromBeginning); // seek to fallback offset
+end;
+
 { TThreadConverter }
 
 constructor TThreadConverter.Create;
@@ -134,7 +157,7 @@ begin
   end;
 
   FWorkEvent := CreateEvent(nil, True, False, nil);  // manual-reset, initially non-signaled
-  //Start;  // begin the wait loop
+
 end;
 
 destructor TThreadConverter.Destroy;
@@ -166,18 +189,27 @@ procedure TThreadConverter.ConvertWavToMP3(Priority: TThreadPriority;
   FileLabel: TLabel; ProgressBar: TProgressBar;
   CancelFlag: PBoolean);
 begin
-  FOwnedWavList.Assign(WavList);
-  FOutputDir := OutputDir;
-  FEncoderConfig := Config;
-  FFileLabel := FileLabel;
-  FProgressBar := ProgressBar;
-  Self.Priority := Priority;
-  FCancelled := CancelFlag;
-  SetEvent(FWorkEvent);  // wake the thread
+  try // Add try block
+    FOwnedWavList.Assign(WavList);
+    FOutputDir := OutputDir;
+    FEncoderConfig := Config;
+    FFileLabel := FileLabel;
+    FProgressBar := ProgressBar;
+    Self.Priority := Priority;
+    FCancelled := CancelFlag;
+    if not Started then
+      Start;  // begin the wait loop
+    SetEvent(FWorkEvent);  // wake the thread
+    //ShowMessage('ConvertWavToMP3 called and event signaled.'); // <--- ADDED FOR DIAGNOSIS
+  except
+    on E: Exception do
+      //ShowMessage('Exception in ConvertWavToMP3: ' + E.Message); // Catch and report exception
+  end; // End try block
 end;
 
 procedure TThreadConverter.Execute;
 begin
+  //ShowMessage('Thread Execute method entered.'); // <--- ADDED FOR DIAGNOSIS
   while not Terminated do
   begin
     WaitForSingleObject(FWorkEvent, INFINITE);
@@ -266,6 +298,7 @@ var
   FileSize, Completed, TotalChunk, ReadSize, BytesRead, BytesWritten,
     WriteSize, FinalSize: DWORD;
   Offset: DWORD;
+  DataOffset: DWORD;
   Err: BE_ERR;
   WavFile, Mp3File: TFileStream;
   WavMemory, Mp3Memory: TMemoryStream;
@@ -318,7 +351,8 @@ begin
   end;
   WavMemory.SetSize(NumSamples);
 
-  FileSize := WavFile.Size;
+  DataOffset := SkipWavHeader(WavFile); // positions file at first PCM byte
+  FileSize := WavFile.Size - DataOffset;
   Completed := 0;
   FSyncProgressMax := FileSize;
   Synchronize(SyncSetProgressMax);

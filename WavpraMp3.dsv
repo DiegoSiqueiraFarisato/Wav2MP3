@@ -1,20 +1,20 @@
 ﻿[ClosedView_RjpcZGF0YW9uaXRcV2F2Mk1QM1xVcHJpbmNpcGFsLnBhcw==]
 Module=F:\dataonit\Wav2MP3\Uprincipal.pas
 CursorX=1
-CursorY=1
-TopLine=1
+CursorY=201
+TopLine=257
 LeftCol=1
-Elisions=
+Elisions={{61,28},{112,3},{''}}{{114,45},{132,3},{''}}
 Bookmarks=
-EditViewName=
+EditViewName=F:\dataonit\Wav2MP3\Uprincipal.pas
 
 [ClosedView_RjpcZGF0YW9uaXRcV2F2Mk1QM1xMYW1lRW5jLnBhcw==]
 Module=F:\dataonit\Wav2MP3\LameEnc.pas
-CursorX=51
-CursorY=330
-TopLine=82
+CursorX=1
+CursorY=320
+TopLine=286
 LeftCol=1
-Elisions=
+Elisions={{95,54},{146,3},{''}}{{148,33},{178,3},{''}}{{180,63},{183,3},{''}}
 Bookmarks=
 EditViewName=F:\dataonit\Wav2MP3\LameEnc.pas
 [ClosedView_RjpcZGF0YW9uaXRcV2F2Mk1QM1xOb3ZhIHBhc3RhXGxhbWUtMy4xMDAudGFyXGxhbWUtMy4xMDBc
@@ -40,9 +40,9 @@ EditViewName=F:\dataonit\Wav2MP3\Nova pasta\lame-3.100.tar\lame-3.100\Dll\BladeM
 
 [ClosedView_RjpcZGF0YW9uaXRcV2F2Mk1QM1xVVGhyZWFkQ29udmVydGVyLnBhcw==]
 Module=F:\dataonit\Wav2MP3\UThreadConverter.pas
-CursorX=1
-CursorY=254
-TopLine=254
+CursorX=6
+CursorY=137
+TopLine=96
 LeftCol=1
 Elisions=
 Bookmarks=
@@ -50,7 +50,7 @@ EditViewName=F:\dataonit\Wav2MP3\UThreadConverter.pas
 
 [ClosedView_RjpcZGF0YW9uaXRcV2F2Mk1QM1xXYXZwcmFNcDMuZHBy]
 Module=F:\dataonit\Wav2MP3\WavpraMp3.dpr
-CursorX=37
+CursorX=41
 CursorY=17
 TopLine=1
 LeftCol=1
@@ -63,6 +63,36 @@ Module=F:\dataonit\Wav2MP3\.gitignore
 CursorX=5
 CursorY=4
 TopLine=1
+LeftCol=1
+Elisions=
+Bookmarks=
+EditViewName=
+
+[ClosedView_RjpcZGF0YW9uaXRcV2F2Mk1QM1xVQ29uZmlndXJhLnBhcw==]
+Module=F:\dataonit\Wav2MP3\UConfigura.pas
+CursorX=1
+CursorY=1
+TopLine=1
+LeftCol=1
+Elisions=
+Bookmarks=
+EditViewName=F:\dataonit\Wav2MP3\UConfigura.pas
+
+[ClosedView_RjpcZGF0YW9uaXRcV2F2Mk1QM1xVRW5jb2RlclR5cGVzLnBhcw==]
+Module=F:\dataonit\Wav2MP3\UEncoderTypes.pas
+CursorX=1
+CursorY=122
+TopLine=86
+LeftCol=1
+Elisions=
+Bookmarks=
+EditViewName=F:\dataonit\Wav2MP3\UEncoderTypes.pas
+[ClosedView_YzpccHJvZ3JhbSBmaWxlcyAoeDg2KVxlbWJhcmNhZGVyb1xzdHVkaW9cMzcuMFxzb3VyY2VccnRs
+XGNvbW1vblxTeXN0ZW0uQ2xhc3Nlcy5wYXM=]
+Module=c:\program files (x86)\embarcadero\studio\37.0\source\rtl\common\System.Classes.pas
+CursorX=1
+CursorY=17259
+TopLine=17234
 LeftCol=1
 Elisions=
 Bookmarks=
